@@ -3,15 +3,6 @@ xquery version "1.0-ml";
 declare namespace http = "xdmp:http";
 declare namespace xhtml = "http://www.w3.org/1999/xhtml";
 import module namespace search = "http://marklogic.com/appservices/search" at "/MarkLogic/appservices/search/search.xqy";
-declare variable $total := fn:count(local:totalArticles());
-declare variable $query := local:setQuery();
-declare variable $sort := "date";
-declare variable $start := if(xdmp:get-request-field("page"))
-                            then ((xs:int(xdmp:get-request-field("page")) - 1) * 15)
-                            else 1;
-declare variable $results := search:search($query, $options, $start, 15)
-declare variable $resultTotal := fn:data($results/@total);(:fn:count(local:results-controller());:)
-
 
 declare variable $options :=
     <options xmlns="http://marklogic.com/appservices/search">
@@ -59,22 +50,19 @@ declare variable $options :=
         </constraint>
     </options>;
 
-declare function local:totalArticles(){
-    for $doc in fn:doc()
-    return $doc
-};
+(: set of functions to organize and return query for search :)
 
 declare function local:setQuery(){
     let $q := if(xdmp:get-request-field("query"))
             then xdmp:get-request-field("query")
-            else ()
+            else ""
     let $s := if(xdmp:get-request-field("sortby"))
             then fn:concat("sort:", xdmp:get-request-field("sortby"))
-            else ()
+            else ""
     let $f := local:join($q, local:addConstraints("Country"))
     let $f := local:join($f, local:addConstraints("Response")) 
     let $f := local:join($f, local:addConstraints("Domain")) 
-    return if(fn:empty($f)) then () else fn:concat($f, " ", $s)
+    return fn:concat($f, " ", $s)
 };
 
 declare function local:join($a, $b){
@@ -94,8 +82,10 @@ declare function local:addConstraints($constraint){
                         where $token != ""
                         return  fn:concat($constraint, ":", $token)
                 else ()
-    return if(fn:empty($f)) then () else fn:string-join($f, " OR ")
+    return if(fn:empty($f)) then () else fn:string-join($f, " AND ")
 };
+
+(: set of function to get/set url to include correct/updated fields for query :)
 
 declare function local:getURL(){
     let $q := xdmp:get-request-field("query")
@@ -130,52 +120,50 @@ declare function local:addFacetsURL($facetType, $facet){
     return $updatedURL
 };
 
-declare function local:setPageURL($p){
-    let $currURL := local:getURL()
+declare function local:setPageURL($url, $p){
+    let $currURL := if($url = "") then local:getURL() else $url
     let $currP := xdmp:get-request-field("page")
     let $newURL := fn:replace($currURL, fn:concat("page=", $currP), fn:concat("page=", $p))
     return $newURL
 };
 
-declare function local:display-results(){
+(: set of functions for displaying aspects of page :)
+
+declare function local:display-results($results){
     let $docs := for $i in $results/search:result
                 let $uri := fn:data($i/@uri)
                 let $doc := fn:doc($uri)
                 return $doc
     return if($docs)
-            then(
+            then (
                 <div id="content">
                     <table cellspacing="0" width="700px">
                         <tr>
-                            <th width="20px">ID</th>
-                            <th width="200px">Title</th>
-                            <th width="70px"><a href="{local:setURL("date")}" class="button">Date</a></th>
-                            <th width="70px"><a href="{local:setURL("countryCode")}" class="button">Country Code</a></th>
-                            <th width="40px">Latitude</th>
-                            <th width="40px">Longitude</th>
+                            <th width="75px">ID</th>
+                            <th width="325px">Title</th>
+                            <th width="150px"><a href="{local:setPageURL(local:setURL("date"), 1)}" class="button">Date</a></th>
+                            <th width="100px"><a href="{local:setPageURL(local:setURL("countryCode"), 1)}" class="button">Country Code</a></th>
+                            <th width="75px">Response</th>
                         </tr>
 
-                        {let $sortedDocs := $docs
-                        for $doc in $sortedDocs
-                        let $id := $doc//GLOBALEVENTID/text()
+                        {for $doc in $docs
+                        let $id := $doc//GLOBALEVENTID
+                        let $title := fn:substring($doc//xhtml:html/xhtml:head/xhtml:title[1]/string(), 1, 100)
+                        let $link := $doc//SOURCEURL
+                        let $title := if($title = "") then $doc//domain else fn:concat(fn:substring($title, 1, 40), "...")
                         let $formatted-date := $doc//formatted-date
                         let $countryCode := $doc//countryCode
-                        let $title := fn:substring($doc//xhtml:html/xhtml:head/xhtml:title[1]/string(), 1, 100)
-                        let $lat := $doc/envelope/headers/lat
-                        let $long := $doc/envelope/headers/long
-                        let $link := $doc//SOURCEURL
-                        where $title != ""
+                        let $responseCode := if($doc//responseCode) then $doc//responseCode else "failed"
                         return( <tr>
                                     <td colspan="10"><hr/></td>
                                 </tr>,
 
                                 <tr>
-                                    <td><b>{$id}</b></td>
-                                    <td><a width="200px" overflowWrap="break-word" inlineSize="200px" href="{$link}">{$title}</a></td>
-                                    <td><b>{$formatted-date}</b></td>
-                                    <td><b>{$countryCode}</b></td>
-                                    <td><b>{$lat}</b></td>
-                                    <td><b>{$long}</b></td>
+                                    <td width="75px"><b>{$id}</b></td>
+                                    <td width="325px"><a inlineSize="300px" href="{$link}">{$title}</a></td>
+                                    <td width="150px"><b>{$formatted-date}</b></td>
+                                    <td width="100px"><b>{$countryCode}</b></td>
+                                    <td width="75px"><b>{$responseCode}</b></td>
                                 </tr>
                         )}
                     </table>
@@ -184,9 +172,8 @@ declare function local:display-results(){
             else <div>Sorry, no results for your search.<br/><br/><br/></div>
 };
 
-declare function local:facets(){
-    let $q := if(xdmp:get-request-field("query")) then xdmp:get-request-field("query") else " "
-    for $facet in search:search($q, $options)/search:facet
+declare function local:facets($results){
+    for $facet in $results/search:facet
     let $facet-count := fn:count($facet/search:facet-value)
     let $facet-name := fn:data($facet/@name)
     return  <div>
@@ -194,38 +181,51 @@ declare function local:facets(){
                 {
                     for $option in $facet/search:facet-value
                     let $option-name := $option/@name
-                    return <div id="facet"><a href="{local:addFacetsURL($facet-name, $option-name)}">{fn:data($option/@name)}</a><a> [{fn:data($option/@count)}]</a></div>
+                    return <div id="facet"><a href="{local:setPageURL(local:addFacetsURL($facet-name, $option-name), 1)}">{fn:data($option/@name)}</a><a> [{fn:data($option/@count)}]</a></div>
                 }
             </div>
 };
 
-declare function local:displayPagination(){
-    let $p := if(xdmp:get-request-field("page"))
-                then xdmp:get-request-field("page")
+declare function local:displayPagination($page, $total){
+    let $p := if($page)
+                then $page
                 else 0
-    let $a := if(xs:int($p) > 3) then (xs:int($p) - 2) else 1
-    let $b := if(xs:int($p) > 3) then (xs:int($p) - 1) else 2
-    let $c := if(xs:int($p) > 3) then xs:int($p) else 3
-    let $d := if(xs:int($p) > 3) then (xs:int($p) + 1) else 4
-    let $e := if(xs:int($p) > 3) then (xs:int($p) + 2) else 5
+    let $pages := xs:int($total div 20) + 1
+    let $a := if($p > 5) then $p - 5 else 1
+    let $b := if($p > 2) then if($page = $pages) then $p - 2 else $p - 1 else 1
+    let $c := if($p > 2) then if($page = $pages) then $p - 1 else $p else 2
+    let $d := if($p > 2) then if($page = $pages) then $p else $p + 1 else 3
+    let $e := if($p < $pages - 5) then $p + 5 else $pages
 
     return (
         <div>
-            <a class="pageLink" href="{local:setPageURL($a)}">{$a}</a>&nbsp;
-            <a class="pageLink" href="{local:setPageURL($b)}">{$b}</a>&nbsp;
-            <a class="pageLink" href="{local:setPageURL($c)}">{$c}</a>&nbsp;
-            <a class="pageLink" href="{local:setPageURL($d)}">{$d}</a>&nbsp;
-            <a class="pageLink" href="{local:setPageURL($e)}">{$e}</a>&nbsp;
+            <a href="{local:setPageURL("", 1)}"><img src="/images/startarrowblue.png"/></a>&nbsp;
+            <a href="{local:setPageURL("", $a)}"><img src="/images/prevarrowblue.png"/></a>&nbsp;
+            <a class="{local:pageIdentifier($page, $b)}" href="{local:setPageURL("", $b)}">{$b}</a>&nbsp;
+            <a class="{local:pageIdentifier($page, $c)}" href="{local:setPageURL("", $c)}">{$c}</a>&nbsp;
+            <a class="{local:pageIdentifier($page, $d)}" href="{local:setPageURL("", $d)}">{$d}</a>&nbsp;
+            <a href="{local:setPageURL("", $e)}"><img src="/images/nextarrowblue.png"/></a>&nbsp;
+            <a href="{local:setPageURL("", $pages)}"><img src="/images/endarrowblue.png"/></a>&nbsp;
         </div>
     )
 };
 
+declare function local:pageIdentifier($page, $p){
+    let $select := if($page = $p) then "currPage" else "pageLink"
+    return $select
+};
+
 xdmp:set-response-content-type("text/html; charset=utf-8"),
-let $query := try {
-    local:setQuery()
-} catch($e) {
-    xdmp:log("setQuery Exception: " || xdmp:describe($e, (), ()))
-}
+let $total := fn:count(fn:doc())
+let $query := local:setQuery()
+let $page := if(xdmp:get-request-field("page"))
+                then xs:int(xdmp:get-request-field("page"))
+                else 1
+let $start := if($page)
+                then (($page - 1) * 20) + 1
+                else 1
+let $results := search:search($query, $options, $start, 20)
+let $resultTotal := fn:data($results/@total)
 return
 <html>
     <head>
@@ -237,24 +237,22 @@ return
             <div>
                 <h3>total articles: {$total}</h3>
                 <h3>results: {$resultTotal}</h3>
-                {local:setQuery()}
             </div>
-            {local:addConstraints("Country")}
             <div id="input">
                 <form id="sinput" onsubmit="{local:getURL()}">
                     <input type="text" name="query" id="query" size="55" onsubmit="{local:getURL()}" value="{xdmp:get-request-field("query")}"/><button type="button" id="reset_button" onclick="document.location.href='index.xqy'">x</button>&#160;
                     <button type="submit" onsubmit="{local:getURL()}" href="{local:getURL()}">search</button>
                 </form>
                 <div id="pinput">
-                    {local:displayPagination()}
+                    {local:displayPagination($page, $resultTotal)}
                 </div>
             </div>
             <div id="display">
                 <div id="leftcol">
-                {local:facets()}
+                {local:facets($results)}
                 </div>
                 <div id="rightcol">
-                    {local:display-results()}
+                    {local:display-results($results)}
                 </div>
             </div>
         </div>

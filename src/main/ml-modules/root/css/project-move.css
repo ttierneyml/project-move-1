@@ -44,12 +44,14 @@ th {
 	font-size: 12px;
 	color: #666;
 	text-align: left;
+	padding-right: 25px;
 }
 
 td {
 	overflow-wrap: break-word;
 	color: #333;
 	font-size: 12px;
+	padding-right: 25px;
 }
 form {
 	padding-top: 12px;
@@ -113,11 +115,14 @@ a.button {
 #searchdiv{
 	float: left;
 }
-#currPage{
-	width: 20px;
+a.currPage{
+	color: black;
+	text-decoration: underline;
+	font-weight: bold;
 }
 a.pageLink{
 	color: black;
+	text-decoration: none;
 }
 #input{
 	padding-bottom: 15px;
