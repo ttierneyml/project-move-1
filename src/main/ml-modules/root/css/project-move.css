@@ -119,10 +119,12 @@ a.currPage{
 	color: black;
 	text-decoration: underline;
 	font-weight: bold;
+	width: 45px;
 }
 a.pageLink{
 	color: black;
 	text-decoration: none;
+	width: 45px;
 }
 #input{
 	padding-bottom: 15px;

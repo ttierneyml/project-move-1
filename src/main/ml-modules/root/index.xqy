@@ -148,12 +148,13 @@ declare function local:display-results($results){
 
                         {for $doc in $docs
                         let $id := $doc//GLOBALEVENTID
-                        let $title := fn:substring($doc//xhtml:html/xhtml:head/xhtml:title[1]/string(), 1, 100)
+                        let $responseCode := if($doc//responseCode) then $doc//responseCode else "failed"
+                        let $title := $doc//xhtml:html/xhtml:head/xhtml:title[1]/string()
+                        let $title := if(fn:empty($title) or $title = "" or $responseCode = 403) then $doc//domain/string() else $title
+                        let $title := if(fn:string-length($title) > 40) then fn:concat(fn:substring($title, 1, 40), "...") else $title
                         let $link := $doc//SOURCEURL
-                        let $title := if($title = "") then $doc//domain else fn:concat(fn:substring($title, 1, 40), "...")
                         let $formatted-date := $doc//formatted-date
                         let $countryCode := $doc//countryCode
-                        let $responseCode := if($doc//responseCode) then $doc//responseCode else "failed"
                         return( <tr>
                                     <td colspan="10"><hr/></td>
                                 </tr>,
