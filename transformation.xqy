@@ -32,6 +32,25 @@ declare function local:formatDate($date){
     return $formatted-date
 };
 
+declare function local:httpGetRecur($i, $source, $date, $countryCode, $long, $lat, $formatted-date, $domain, $URI){
+    let $url := $i
+    return  try{
+                let $html := xdmp:http-get($url,
+                    <options xmlns="xdmp:http">
+                        <verify-cert>false</verify-cert>
+                    </options>)
+                let $xhtml := xdmp:tidy($html[2])
+                let $meta := $html[1]
+                let $responseCode := $meta/http:code/text()
+                let $ret := if(xs:int($responseCode) = 301 or xs:int($responseCode) = 302) then local:httpGetRecur($url, $source, $date, $countryCode, $long, $lat, $formatted-date, $domain, $URI) else xdmp:document-insert($URI, local:formatXML($source, $meta, $xhtml, $date, $countryCode, $long, $lat, $formatted-date, $responseCode, $domain), (xdmp:permission("rest-reader", "read"), xdmp:permission("rest-writer", "update")), ("canonical", "corb_transformed"))
+                return $ret
+            }
+            catch($err){
+                let $xhtml := <error>HTML UNRETRIEVABLE. SEE METADATA SECTION FOR ERROR</error>
+                return xdmp:document-insert($URI, local:formatXML($source, $err, $xhtml, $date, $countryCode, $long, $lat, $formatted-date, "", $domain), (xdmp:permission("rest-reader", "read"), xdmp:permission("rest-writer", "update")), ("corb_transformed", "failed"))
+            }
+};
+
 let $source := fn:doc($URI)
 let $url := $source//root/SOURCEURL/text()
 let $domain := fn:tokenize($url, "/")[3]
@@ -50,17 +69,4 @@ let $long := if(fn:normalize-space($source//ActionGeo_Long/text()) = "")
 let $lat := if(fn:normalize-space($source//ActionGeo_Lat/text()) = "")
             then 0
             else $source//ActionGeo_Lat/text()
-return try{
-        let $html := xdmp:http-get($url,
-            <options xmlns="xdmp:http">
-                <verify-cert>false</verify-cert>
-            </options>)
-        let $xhtml := xdmp:tidy($html[2])
-        let $meta := $html[1]
-        let $responseCode := $meta/http:code/text()
-        return xdmp:document-insert($URI, local:formatXML($source, $meta, $xhtml, $date, $countryCode, $long, $lat, $formatted-date, $responseCode, $domain), (xdmp:permission("rest-reader", "read"), xdmp:permission("rest-writer", "update")), ("canonical", "corb_transformed"))
-    }
-    catch($err){
-        let $xhtml := <error>HTML UNRETRIEVABLE. SEE METADATA SECTION FOR ERROR</error>
-        return xdmp:document-insert($URI, local:formatXML($source, $err, $xhtml, $date, $countryCode, $long, $lat, $formatted-date, "", $domain), (xdmp:permission("rest-reader", "read"), xdmp:permission("rest-writer", "update")), ("corb_transformed", "failed"))
-    }
+return local:httpGetRecur($url, $source, $date, $countryCode, $long, $lat, $formatted-date, $domain, $URI)

@@ -22,7 +22,23 @@ declare variable $options :=
                 <search:sort-order>
                     <search:score/>
                 </search:sort-order>
-            </search:state>   
+            </search:state>
+            <search:state name="date-d">
+                <search:sort-order direction="descending" type="xs:date">
+                    <search:element name="date"/>
+                </search:sort-order>
+                <search:sort-order>
+                    <search:score/>
+                </search:sort-order>
+            </search:state>            
+            <search:state name="countryCode-d">
+                <search:sort-order direction="descending" type="xs:string">
+                    <search:element name="countryCode"/>
+                </search:sort-order>
+                <search:sort-order>
+                    <search:score/>
+                </search:sort-order>
+            </search:state>    
         </search:operator>
         <constraint name="Country">
             <range type="xs:string" collation="http://marklogic.com/collation/en/S1">
@@ -52,16 +68,16 @@ declare variable $options :=
 
 (: set of functions to organize and return query for search :)
 
-declare function local:setQuery(){
+declare function local:setQuery($facet){
     let $q := if(xdmp:get-request-field("query"))
             then xdmp:get-request-field("query")
             else ""
     let $s := if(xdmp:get-request-field("sortby"))
             then fn:concat("sort:", xdmp:get-request-field("sortby"))
             else ""
-    let $f := local:join($q, local:addConstraints("Country"))
-    let $f := local:join($f, local:addConstraints("Response")) 
-    let $f := local:join($f, local:addConstraints("Domain")) 
+    let $f := if($facet = "Country") then $q else local:join($q, local:addConstraints("Country"))
+    let $f := if($facet = "Response") then $f else local:join($f, local:addConstraints("Response")) 
+    let $f := if($facet = "Domain") then $f else local:join($f, local:addConstraints("Domain")) 
     return fn:concat($f, " ", $s)
 };
 
@@ -82,7 +98,7 @@ declare function local:addConstraints($constraint){
                         where $token != ""
                         return  fn:concat($constraint, ":", $token)
                 else ()
-    return if(fn:empty($f)) then () else fn:string-join($f, " AND ")
+    return if(fn:empty($f)) then () else fn:concat("(", fn:string-join($f, " OR "), ")")
 };
 
 (: set of function to get/set url to include correct/updated fields for query :)
@@ -101,6 +117,9 @@ declare function local:getURL(){
 declare function local:setURL($sort){
     let $currURL := local:getURL()
     let $currsort := fn:concat("sortby=", xdmp:get-request-field("sortby"))
+    let $sort := if($sort = xdmp:get-request-field("sortby"))
+                    then fn:concat($sort, "-d")
+                    else $sort
     let $newSort := fn:concat("sortby=", $sort)
     let $updatedURL := fn:replace($currURL, $currsort, $newSort)
     return $updatedURL
@@ -174,9 +193,13 @@ declare function local:display-results($results){
 };
 
 declare function local:facets($results){
-    for $facet in $results/search:facet
-    let $facet-count := fn:count($facet/search:facet-value)
+    let $updatedFacets :=for $facet in $results/search:facet
+                            let $facet-name := fn:data($facet/@name)
+                            let $q := local:setQuery($facet-name)
+                            return search:search($q, $options)/search:facet[@name = $facet-name]
+    for $facet in $updatedFacets
     let $facet-name := fn:data($facet/@name)
+    let $facet-count := fn:count($facet/search:facet-value)
     return  <div>
                 <h3>{$facet-name}</h3>
                 {
@@ -218,7 +241,8 @@ declare function local:pageIdentifier($page, $p){
 
 xdmp:set-response-content-type("text/html; charset=utf-8"),
 let $total := fn:count(fn:doc())
-let $query := local:setQuery()
+let $q := if(xdmp:get-request-field("query")) then xdmp:get-request-field("query") else " "
+let $query := local:setQuery("")
 let $page := if(xdmp:get-request-field("page"))
                 then xs:int(xdmp:get-request-field("page"))
                 else 1
@@ -226,7 +250,9 @@ let $start := if($page)
                 then (($page - 1) * 20) + 1
                 else 1
 let $results := search:search($query, $options, $start, 20)
+let $searchResults := search:search($q, $options)
 let $resultTotal := fn:data($results/@total)
+let $searchResultTotal := fn:data($searchResults/@total)
 return
 <html>
     <head>
